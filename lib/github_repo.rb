@@ -100,7 +100,7 @@ class GithubApi
     url += "#{repo.owner}/#{repo.name}.git"
   end
   
-  def clone_url(repo_name, user_name = nil, retries = 2)
+  def clone_url(repo_name, user_name = nil, options = {:retries => 2} )
     begin   
       authenticated do
         clone_user = user(user_name)
@@ -108,10 +108,11 @@ class GithubApi
         get_clone_url(repo, clone_user)
       end
     rescue Octopi::APIError 
-      return "git://github.com/#{repo.owner}/#{repo.name}.git" if retries == 0     
+      return "git://github.com/#{repo.owner}/#{repo.name}.git" if options[:retries] == 0     
       puts "retry get clone url for #{repo_name} in 20 secs"
-      sleep 10                             
-      clone_url(repo_name, user_name, retries -1)
+      sleep 10        
+      options.merge! {:retries => options[:retries] -1 }                           
+      clone_url(repo_name, user_name, options)
 
     end
   end
@@ -130,7 +131,7 @@ class GithubApi
     end
   end
 
-  def create_it(name, options = {}, retries = 2)
+  def create_it(name, options = {})
     begin  
       status = nil
       authenticated do 
@@ -149,19 +150,20 @@ class GithubApi
       puts "create error: #{status}"
       nil
     ensure
+      options.merge! {:retries => options[:retries] -1 }
       if status.to_s == name
         begin
           "was error but also status: #{status}, so returning status"                    
           return status
         rescue Octopi::APIError          
           "retry created repo in 10 secs"
-          raise CreateError if retries == 0
+          raise CreateError if options[:retries] == 0
           sleep 10 
-          return create_it(name, options, retries -1)
+          return create_it(name, options)
         end
       else
         puts "bad status #{status}, should be #{name} - try again!"
-        return create_it(name, options, retries -1)        
+        return create_it(name, options )        
       end   
     end
   end
@@ -190,9 +192,9 @@ class GithubApi
     end      
   end    
 
-  def init_repo(name, overwrite = true)  
+  def init_repo(name, options = {:overwrite => true})  
     begin
-      if File.directory?(name) && overwrite
+      if File.directory?(name) && options[:overwrite]
         puts "removing local repo: #{name}"
         FileUtils.rm_rf(name) 
       end
@@ -208,9 +210,9 @@ class GithubApi
   end
 
 
-  def rename!(repo_name, new_repo_name, user_name = nil, overwrite = true)
+  def rename!(repo_name, new_repo_name, user_name = nil, {:overwrite => true})
     begin
-      delete!(new_repo_name) if overwrite   
+      delete!(new_repo_name) if options[:overwrite]   
       puts "waiting 20 secsfor delete to take effect before creating new repo"
       sleep 20   
       return nil if !create(new_repo_name)   
@@ -251,7 +253,8 @@ class GithubApi
         status = delete!(repo_name)
         puts "old repo #{repo_name} deleted" if status              
       end
-      FileUtils.rm_rf repo_name
+      
+      FileUtils.rm_rf repo_name if options[:delete_local]
       puts "old local repo deleted"
 
       puts "making sure old repo is deleted"
