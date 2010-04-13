@@ -141,7 +141,7 @@ class GithubApi
         puts repo_options.inspect   
         puts "create it"
         status = Repository.create(repo_options)
-        sleep 10 
+        sleep 32 
         puts "created ok: #{status}"              
         status.to_s == name ? status : nil
       end

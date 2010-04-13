@@ -15,8 +15,12 @@ Rename [old-name] [new-name]
 3. Clones the github repository [old-name] locally
 4. Deletes the github repository [old-name]
 5. Changes origin of the local [old-name] repository to point to the github repository [new-name]
-6. Pushes the local repository to the github repository [new-name]
-7. Makes sure the github repository [old-name] was deleted!
+6. Push the local repository to the github repository [new-name] 
+7. Makes sure the github repository [old-name] was deleted!      
+
+TODO:
+8. Check that the repository [new-name] exists
+9. Delete the local repo (only if option set to do so!)
 
 Note: Currently this task contains a lot of code to retry when things go wrong some some reason. 
 The github API is still pretty unstable! And suffers from some timeout and caching issues, which requires a lot of care and exception handling!
