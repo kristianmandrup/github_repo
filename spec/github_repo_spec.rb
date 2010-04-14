@@ -13,7 +13,8 @@ require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
 describe "GithubRepo" do
   it "works" do        
-    api = GithubApi.new          
+    api = GithubApi.new
+    api.log_on
 #    res = api.create 'hello2', :description => 'my hello2', :homepage => 'my homepage2'  
     # puts api.delete! 'hello2'
     # api.authenticated do
@@ -29,7 +30,7 @@ describe "GithubRepo" do
     # # puts Dir.pwd
     # api.init_repo 'hello'
     # puts res
-    puts api.rename! 'hello', 'new_hello'
+    # api.rename! 'hello', 'new_hello'
     # res = api.rename 'hello', 'new_hello'
     # puts res
   end

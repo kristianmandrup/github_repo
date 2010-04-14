@@ -37,16 +37,30 @@ class GithubApi
   end
 
 
-  attr_accessor :config
+  attr_accessor :config, :log_level
 
-  def initialize()
-    @config ||= configure 
+  def initialize(options = {})
+    @config = configure
+    @log_level = options[:log_level] || 0
   end
+
+  def log_on   
+    self.log_level = 1
+  end    
+
+  def verbose_log_on
+    self.log_level = 2
+  end    
+
+
+  def log_off
+    self.log_level = 0
+  end    
 
   def delete!(name)                  
     begin             
       if !user.repositories.find(name)
-        puts "repo #{name} not found"
+        info "repo #{name} not found"
         return nil 
       end     
       delete_it!(name) 
@@ -57,15 +71,17 @@ class GithubApi
 
   def delete_it!(name) 
     begin
-      puts "deleting repo: #{name}"
+      info "deleting repo: #{name}"
       result = post "http://github.com/api/v2/yaml/repos/delete/#{name}"
       token = result.parse_single_result('delete_token')                               
       return true if token && token.length > 20
       raise DeleteError, "delete error" if !token
       status = post "http://github.com/api/v2/yaml/repos/delete/#{name}", 'delete_token' => token 
       return true if status.to_s.length > 100
+      log "repo #{name} deleted ok"
+      status
     rescue Octopi::APIError 
-      puts "delete error!"
+      log "delete error!"
       raise DeleteError, "delete error"
     end
   end
@@ -82,25 +98,26 @@ class GithubApi
   
   def clone(repo_name, user_name = nil, clone_name = nil)
     begin
-      puts "cloning: #{repo_name}"
+      info "cloning: #{repo_name}"
       clone_user = user(user_name)
       repo = clone_user.repositories.find(repo_name)    
       url = get_clone_url(repo, clone_user)
       name = clone_name ? clone_name : repo_name 
-      `git clone #{url} #{name}`
-      url
+      `git clone #{url} #{name}`  
+      log "cloned #{repo_name} ok"
+      return url
     rescue Octopi::APIError
       raise CloneError
     end
   end    
 
   def get_clone_url(repo, user)   
-    # puts "user: '#{user}' == repo_user: '#{repo.owner.login}', #{user.to_s == repo.owner.login.to_s}"
+    # log "user: '#{user}' == repo_user: '#{repo.owner.login}', #{user.to_s == repo.owner.login.to_s}"
     url = user.to_s == repo.owner.login.to_s ? "git@github.com:" : "git://github.com/"
     url += "#{repo.owner}/#{repo.name}.git"
   end
   
-  def clone_url(repo_name, user_name = nil, options = {:retries => 2} )
+  def clone_url(repo_name, user_name = nil, options = {:retries => 3} )
     begin   
       authenticated do
         clone_user = user(user_name)
@@ -109,21 +126,26 @@ class GithubApi
       end
     rescue Octopi::APIError 
       return "git://github.com/#{repo.owner}/#{repo.name}.git" if options[:retries] == 0     
-      puts "retry get clone url for #{repo_name} in 20 secs"
+      info "retry get clone url for #{repo_name} in 10 secs"
       sleep 10        
-      options.merge! {:retries => options[:retries] -1 }                           
+      options.merge! :retries => options[:retries] -1                           
       clone_url(repo_name, user_name, options)
-
     end
   end
 
   def create(name, options = {})           
-    puts "creating repo: #{name}"
+    log "creating repo: #{name}"
     authenticated do
       begin
-        if user.repositories.find(name)
-          puts "no need to create #{name}, since it already exist!"
-          true
+        if user.repositories.find(name) 
+          unless options[:overwrite]
+            info "repo #{name} not created since it already exists"
+            return true
+          else
+            info "repo #{name} already exists, but will be overwritten with new repo!"            
+            delete!(name, options)
+            create(name, options)
+          end
         end
       rescue Octopi::APIError
         create_it(name, options)
@@ -131,38 +153,27 @@ class GithubApi
     end
   end
 
-  def create_it(name, options = {})
+  def create_it(name, options = {:retries => 2})
     begin  
       status = nil
       authenticated do 
-        puts "configure repo options"         
         repo_options = {:name => name}
         [:description, :homepage ].each{|o| repo_options[o] = options[o] if options[o]}
         repo_options[:public] = 0 if options[:private]                    
-        puts repo_options.inspect   
-        puts "create it"
+        log repo_options.inspect   
         status = Repository.create(repo_options)
-        sleep 32 
-        puts "created ok: #{status}"              
         status.to_s == name ? status : nil
       end
-    rescue Octopi::APIError 
-      puts "create error: #{status}"
-      nil
+    rescue Octopi::APIError => e 
+      info "create error: #{e}"
     ensure
-      options.merge! {:retries => options[:retries] -1 }
+      options.merge! :retries => options[:retries] -1
       if status.to_s == name
-        begin
-          "was error but also status: #{status}, so returning status"                    
-          return status
-        rescue Octopi::APIError          
-          "retry created repo in 10 secs"
-          raise CreateError if options[:retries] == 0
-          sleep 10 
-          return create_it(name, options)
-        end
+        log "created repo ok"
+        return status
       else
-        puts "bad status #{status}, should be #{name} - try again!"
+        info "bad status #{status}, should be #{name} - try again!"
+        sleep 32         
         return create_it(name, options )        
       end   
     end
@@ -170,11 +181,12 @@ class GithubApi
 
   def first_commit(msg = 'first commit')
     begin
-      puts "first commit"
+      info "first commit"
       `git init`
       `touch README`    
       `git add .`
-      `git commit -m '#{msg}'`
+      `git commit -m '#{msg}'`            
+      log "first push commit completed ok"      
     rescue
       raise FirstCommitError
     end      
@@ -182,11 +194,12 @@ class GithubApi
 
   def first_push_origin(name) 
     begin
-      puts "first push origin"    
+      info "first push origin"    
       origin = clone_url(name) 
       `git remote rm origin`   
       `git remote add origin #{origin}`
       `git push origin master`
+      log "first push origin completed ok"
     rescue
       raise FirstPushOriginError
     end      
@@ -195,7 +208,7 @@ class GithubApi
   def init_repo(name, options = {:overwrite => true})  
     begin
       if File.directory?(name) && options[:overwrite]
-        puts "removing local repo: #{name}"
+        log "removing local repo: #{name}"
         FileUtils.rm_rf(name) 
       end
       clone name
@@ -203,26 +216,26 @@ class GithubApi
         first_commit
         first_push_origin name
       end  
-      puts "init repo complete!"
+      log "init repo complete!"
     rescue
       raise InitRepoError
     end
   end
 
 
-  def rename!(repo_name, new_repo_name, user_name = nil, {:overwrite => true})
+  def rename!(repo_name, new_repo_name, user_name = nil, options = {:overwrite => true})
     begin
       delete!(new_repo_name) if options[:overwrite]   
-      puts "waiting 20 secsfor delete to take effect before creating new repo"
+      info "waiting 20 secs for delete to take effect before creating new repo"
       sleep 20   
       return nil if !create(new_repo_name)   
-      puts "created new repo: #{new_repo_name}"
+      log "created new repo: #{new_repo_name}"
       
       # clone old repo
-      puts "current dir: #{Dir.pwd}"
+      info "current dir: #{Dir.pwd}"
       if File.directory?(repo_name) 
         if overwrite
-          puts "removing local repo: #{repo_name}"
+          info "removing local repo: #{repo_name}"
           FileUtils.rm_rf(repo_name)  
           old_clone_url = clone(repo_name, user_name)                  
         else
@@ -231,36 +244,36 @@ class GithubApi
       else
         old_clone_url = clone(repo_name, user_name)                  
       end        
-      puts "cloned old repo from : #{old_clone_url}"
+      log "cloned old repo from : #{old_clone_url}"
       # create new repo with new name
       raise RenameError, "Error getting hold of old repository" if !old_clone_url
 
-      puts "get clone_url for new repo: #{repo_name}"
+      info "get clone_url for new repo: #{repo_name}"
       new_clone_url = clone_url(new_repo_name, user_name)                 
       raise RenameError, "Error getting new repository url for: #{new_repo_name}" if !new_clone_url
       
       # change remote origin of repo
-      puts "current dir: #{Dir.pwd}"      
+      info "current dir: #{Dir.pwd}"      
       return "no local clone dir for #{repo_name}" if !File.directory? repo_name 
       FileUtils.cd repo_name do 
-        puts "update old local repo to point to new repo" 
+        info "update old local repo to point to new repo" 
         `git remote rm origin`      
-        puts "removed old origin"
+        info "removed old origin"
         `git remote add origin #{new_clone_url}`
-        puts "added new origin"
+        info "added new origin"
         `git push origin master --force`
-        puts "pushed to new origin master: #{new_clone_url}"      
+        log "pushed to new origin master: #{new_clone_url}"      
         status = delete!(repo_name)
-        puts "old repo #{repo_name} deleted" if status              
+        log "old repo #{repo_name} deleted" if status              
       end
       
       FileUtils.rm_rf repo_name if options[:delete_local]
-      puts "old local repo deleted"
+      log "old local repo directory deleted"
 
-      puts "making sure old repo is deleted"
-      puts delete!(repo_name)                          
+      info "making sure old repo is deleted"
+      log delete!(repo_name)                          
     rescue StandardError => e 
-      puts e
+      log e
       true
     end      
   end

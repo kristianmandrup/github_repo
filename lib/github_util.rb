@@ -9,6 +9,15 @@ module GithubUtil
 
     {:name => github_username, :token => github_token, :login => github_username}
   end
+   
+  def info(msg) 
+    puts msg if log_level > 0
+  end
+
+  def log(msg)    
+    puts msg if log_level > 1
+  end
+
 
   def post(path, options = {})
     opts = {'login' => config[:login], 'token' => config[:token]}        
